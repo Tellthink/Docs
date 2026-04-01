@@ -1,0 +1,129 @@
+@startuml
+!define table class
+!define pk <b><color:green>PK</color></b>
+!define fk <b><color:blue>FK</color></b>
+
+' Таблицы
+table "users" as users {
+    + id : UUID <<pk>>
+    --
+    username : VARCHAR(64)
+    email : VARCHAR(255)
+    password_hash : VARCHAR(255)
+    display_name : VARCHAR(64)
+    avatar_url : TEXT
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+    last_seen_at : TIMESTAMP
+    is_active : BOOLEAN
+}
+
+table "chats" as chats {
+    + id : UUID <<pk>>
+    --
+    type : VARCHAR(7)
+    title : VARCHAR(128)
+    avatar_url : TEXT
+    created_by : UUID <<fk>>
+    created_at : TIMESTAMP
+}
+
+table "chat_members" as chat_members {
+    + chat_id : UUID <<pk>>
+    + user_id : UUID <<pk>>
+    --
+    role : VARCHAR(10)
+    joined_at : TIMESTAMP
+    left_at : TIMESTAMP
+    is_muted : BOOLEAN
+    last_read_message_id : UUID <<fk>>
+}
+
+table "messages" as messages {
+    + id : UUID <<pk>>
+    --
+    chat_id : UUID <<fk>>
+    sender_id : UUID <<fk>>
+    reply_to_id : UUID <<fk>>
+    body : TEXT
+    type : VARCHAR(10)
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+table "message_attachments" as attachments {
+    + id : UUID <<pk>>
+    --
+    message_id : UUID <<fk>>
+    file_url : TEXT
+    file_type : VARCHAR(64)
+    file_size : BIGINT
+    filename : VARCHAR(255)
+}
+
+table "password_reset_tokens" as pwd_reset {
+    + id : BIGINT <<pk>>
+    --
+    user_id : UUID <<fk>>
+    token : VARCHAR(128)
+    expires_at : TIMESTAMP
+    used_at : TIMESTAMP
+}
+
+table "refresh_tokens" as refresh {
+    + id : UUID <<pk>>
+    --
+    user_id : UUID <<fk>>
+    token : VARCHAR(512)
+    expires_at : TIMESTAMP
+    revoked_at : TIMESTAMP
+}
+
+table "chat_settings" as chat_settings {
+    + chat_id : UUID <<pk>> <<fk>>
+    --
+    allow_guests : BOOLEAN
+    message_retention_days : INT
+}
+
+table "user_typing_status" as typing {
+    + user_id : UUID <<pk>>
+    + chat_id : UUID <<pk>>
+    --
+    started_typing_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+' Связи
+users ||--o{ chat_members 
+chats ||--o{ chat_members 
+
+chat_members }o--|| messages 
+
+users ||--o{ messages 
+chats ||--o{ messages 
+
+messages ||--o{ attachments 
+messages ||--o| messages 
+
+users ||--o{ pwd_reset 
+users ||--o{ refresh 
+
+chats ||--|| chat_settings 
+
+users ||--o{ typing 
+chats ||--o{ typing 
+
+' Внешние ключи 
+' chat_members.last_read_message_id -> messages.id
+' messages.chat_id -> chats.id
+' messages.sender_id -> users.id
+' messages.reply_to_id -> messages.id
+' attachments.message_id -> messages.id
+' pwd_reset.user_id -> users.id
+' refresh.user_id -> users.id
+' chat_settings.chat_id -> chats.id
+' typing.user_id -> users.id
+' typing.chat_id -> chats.id
+
+@enduml

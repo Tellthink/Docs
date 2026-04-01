@@ -1,0 +1,56 @@
+@startuml
+actor "Пользователь" as User
+participant "Клиент" as Client
+participant "Сервер" as Server
+database "База данных" as DB
+
+User -> Client: Нажимает "Редактировать"\nна своём сообщении\nвводит новый текст
+Client -> Server: PUT /messages/{messageId}\n{body}
+activate Server
+
+Server -> Server: Извлечь user_id из токена
+
+' Проверка существования сообщения и прав
+Server -> DB: SELECT chat_id, sender_id\nFROM messages\nWHERE id = ?
+DB --> Server: message_info (или пусто)
+
+alt Сообщение не найдено
+    Server -> Client: 404 Not Found\n{error: "Message not found"}
+    deactivate Server
+    Client -> User: Показать ошибку
+else Сообщение найдено
+    alt message_info.sender_id != user_id
+        Server -> DB: SELECT role FROM chat_members\nWHERE chat_id = ? AND user_id = ? AND left_at IS NULL
+        DB --> Server: user_role
+        alt user_role NOT IN ('owner', 'admin')
+            Server -> Client: 403 Forbidden\n{error: "You can only edit your own messages"}
+            deactivate Server
+            Client -> User: Показать ошибку
+        else user_role IN ('owner', 'admin')
+            ' Разрешить редактирование (админ/владелец может редактировать любые)
+        end
+    end
+
+    ' Начать транзакцию
+    Server -> DB: BEGIN TRANSACTION
+
+    ' Обновить сообщение
+    Server -> DB: UPDATE messages\nSET body = ?, updated_at = NOW()\nWHERE id = ?
+    DB --> Server: OK
+
+    ' Опционально: обновление last_edited_message_id в chat_members (не требуется)
+    Server -> DB: COMMIT
+
+    ' Вернуть обновлённое сообщение клиенту
+    Server -> Client: 200 OK\n{message_id, body, updated_at}
+    deactivate Server
+    Client -> User: Отобразить обновлённый текст
+
+    ' Рассылка уведомлений участникам (кроме автора)
+    Server -> DB: SELECT user_id FROM chat_members\nWHERE chat_id = ? AND user_id != ? AND left_at IS NULL
+    DB --> Server: [список получателей]
+    loop для каждого получателя
+        Server -> Client: WebSocket / Push\n{ type: "message_updated", message_id, body, updated_at }
+    end
+end
+@enduml

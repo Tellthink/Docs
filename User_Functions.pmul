@@ -1,0 +1,99 @@
+@startuml
+left to right direction
+
+actor "Пользователь" as User
+actor "Авторизированный  пользователь" as Authorized_user
+
+rectangle "Система входа" {
+  usecase "Регистрация" as UC1
+  usecase "Вход" as UC2
+  usecase "Восстановление пароля" as UC3
+}
+
+
+rectangle "Навигатор" as R2{
+  usecase "Открыть профиль" as UC18
+
+  rectangle "Профиль" {
+    usecase "Смена пароля" as UC4
+    usecase "Смена пользователя" as UC5
+    usecase "Выход" as UC6
+  } 
+
+  usecase "Открыть меню пользователей" as UC17
+
+  rectangle "Меню пользователей" {
+    usecase "Найти пользователя" as UC7
+    usecase "Начать новый чат с пользователем" as UC7a
+    usecase "Добавить пользователя в существующий чат" as UC7b
+  } 
+
+  rectangle "Меню чатов" {
+    usecase "Создать чат" as UC8
+    usecase "Выбрать чат" as UC7b1
+    usecase "Удалить чат" as UC9
+    usecase "Найти чат" as UC10
+    usecase "Открыть чат" as UC11
+    usecase "Настройки чата" as UC12
+  } 
+
+  rectangle "Чат" {
+    usecase "Отправить сообщение" as UC13
+    usecase "Выбрать сообщение" as UC14
+    usecase "Редактировать сообщение" as UC14a
+    usecase "Удалить сообщение" as UC14b
+    usecase "Перемещение по чату" as UC15
+    usecase "Ввод сообщения" as UC16
+  } 
+}
+
+User --> UC1
+User --> UC2
+
+UC1 --> UC2
+
+UC2 --> UC3
+UC2 --> Authorized_user
+
+UC3 --> Authorized_user
+
+Authorized_user --> UC18
+Authorized_user --> UC10
+Authorized_user --> UC7b1
+Authorized_user --> UC8
+Authorized_user --> UC17
+
+UC5 --> UC2
+
+UC6 --> User
+
+UC7 --> UC7a
+UC7 --> UC7b
+UC7b --> UC7b1
+
+UC7a --> UC12
+
+UC7b1 --> UC9
+UC7b1 --> UC11
+UC7b1 --> UC12
+
+UC8 --> UC12
+
+UC10 --> UC7b1
+
+UC11 --> UC16
+UC11 --> UC14
+UC11 --> UC15
+
+UC14 --> UC14a
+UC14 --> UC14b
+
+UC16 --> UC13
+
+UC17 --> UC7
+
+UC18 --> UC4
+UC18 --> UC5
+UC18 --> UC6
+
+@enduml

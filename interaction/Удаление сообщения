@@ -1,0 +1,64 @@
+@startuml
+actor "Пользователь" as User
+participant "Клиент" as Client
+participant "Сервер" as Server
+database "База данных" as DB
+
+User -> Client: Выбирает сообщение\nнажимает "Удалить"
+Client -> Server: DELETE /messages/{messageId}
+activate Server
+
+Server -> Server: Извлечь user_id из токена
+
+' Проверка существования сообщения и прав
+Server -> DB: SELECT chat_id, sender_id\nFROM messages\nWHERE id = ?
+DB --> Server: message_info (или пусто)
+
+alt Сообщение не найдено
+    Server -> Client: 404 Not Found\n{error: "Message not found"}
+    deactivate Server
+    Client -> User: Показать ошибку
+
+else Сообщение найдено
+    alt message_info.sender_id != user_id
+        Server -> DB: SELECT role FROM chat_members\nWHERE chat_id = ? AND user_id = ? AND left_at IS NULL
+        DB --> Server: user_role
+        alt user_role NOT IN ('owner', 'admin')
+            Server -> Client: 403 Forbidden\n{error: "You can only delete your own messages"}
+            deactivate Server
+            Client -> User: Показать ошибку
+        else user_role IN ('owner', 'admin')
+            ' Разрешить удаление (админ/владелец может удалять любые)
+        end
+    end
+
+    ' Начать транзакцию
+    Server -> DB: BEGIN TRANSACTION
+
+    ' Удалить вложения (если есть)
+    Server -> DB: DELETE FROM message_attachments\nWHERE message_id = ?
+    DB --> Server: OK
+
+    ' Удалить сообщение
+    Server -> DB: DELETE FROM messages\nWHERE id = ?
+    DB --> Server: OK
+
+    ' Обновить last_read_message_id в chat_members, если оно указывало на удалённое сообщение
+    Server -> DB: UPDATE chat_members\nSET last_read_message_id = NULL\nWHERE last_read_message_id = ?
+    DB --> Server: OK
+
+    Server -> DB: COMMIT
+
+    ' Вернуть успешный ответ
+    Server -> Client: 200 OK\n{message_id, deleted: true}
+    deactivate Server
+    Client -> User: Удалить сообщение из интерфейса
+
+    ' Рассылка уведомлений участникам (кроме автора)
+    Server -> DB: SELECT user_id FROM chat_members\nWHERE chat_id = ? AND user_id != ? AND left_at IS NULL
+    DB --> Server: [список получателей]
+    loop для каждого получателя
+        Server -> Client: WebSocket / Push\n{ type: "message_deleted", message_id }
+    end
+end
+@enduml

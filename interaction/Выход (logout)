@@ -1,0 +1,43 @@
+@startuml
+actor "Пользователь" as User
+participant "Клиент" as Client
+participant "Сервер" as Server
+database "База данных" as DB
+
+User -> Client: Нажимает "Выйти"
+Client -> Server: POST /auth/logout\n{refresh_token}
+activate Server
+
+Server -> Server: Извлечь refresh_token из запроса
+Server -> Server: Извлечь user_id из access_token (если нужно)
+
+' Проверяем существование и активность refresh-токена
+Server -> DB: SELECT id, user_id, expires_at, revoked_at\nFROM refresh_tokens\nWHERE token = ?
+DB --> Server: token_info (или пусто)
+
+alt Токен не найден
+    Server -> Client: 404 Not Found\n{error: "Refresh token not found"}
+    deactivate Server
+    Client -> User: Показать ошибку
+else Токен найден
+    alt token_info.revoked_at IS NOT NULL
+        Server -> Client: 409 Conflict\n{error: "Token already revoked"}
+        deactivate Server
+        Client -> User: Показать сообщение (сессия уже завершена)
+    else token_info.expires_at < NOW()
+        Server -> Client: 410 Gone\n{error: "Token expired"}
+        deactivate Server
+        Client -> User: Показать сообщение (сессия истекла)
+    else Токен активен
+        ' Отзываем токен
+        Server -> DB: BEGIN TRANSACTION
+        Server -> DB: UPDATE refresh_tokens\nSET revoked_at = NOW()\nWHERE token = ?
+        DB --> Server: OK
+        Server -> DB: COMMIT
+
+        Server -> Client: 200 OK\n{message: "Logged out successfully"}
+        deactivate Server
+        Client -> User: Удалить сохранённые токены,\nперенаправить на экран входа
+    end
+end
+@enduml

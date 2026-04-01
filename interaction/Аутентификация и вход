@@ -1,0 +1,40 @@
+@startuml
+actor "Пользователь" as User
+participant "Клиент" as Client
+participant "Сервер" as Server
+database "База данных" as DB
+
+User -> Client: Вводит логин/email и пароль\nнажимает "Войти"
+Client -> Server: POST /auth/login\n{username_or_email, password}
+activate Server
+
+Server -> DB: SELECT id, password_hash, is_active\nFROM users\nWHERE username = ? OR email = ?
+DB --> Server: user_data (или пусто)
+
+alt Пользователь не найден
+    Server -> Client: 401 Unauthorized\n{error: "Invalid credentials"}
+    Client -> User: Показать ошибку "Неверный логин или пароль"
+else Пользователь найден
+    alt is_active = false
+        Server -> Client: 403 Forbidden\n{error: "Account is blocked or inactive"}
+        Client -> User: Показать ошибку "Учётная запись заблокирована"
+    else is_active = true
+        Server -> Server: Проверка пароля (bcrypt.compare)
+        alt Пароль неверный
+            Server -> Client: 401 Unauthorized\n{error: "Invalid credentials"}
+            Client -> User: Показать ошибку "Неверный логин или пароль"
+        else Пароль верный
+            Server -> Server: Сгенерировать access_token (JWT)\nи refresh_token
+            Server -> DB: BEGIN TRANSACTION
+            Server -> DB: INSERT INTO refresh_tokens\n(id, user_id, token_hash, expires_at)\nVALUES (?, ?, ?, ?)
+            DB --> Server: OK
+            Server -> DB: COMMIT
+            Server -> DB: UPDATE users\nSET last_seen_at = NOW()\nWHERE id = ?
+            DB --> Server: OK
+            Server -> Client: 200 OK\n{access_token, refresh_token, user: {...}}
+            deactivate Server
+            Client -> User: Сохранить токены,\nперенаправить в основной интерфейс
+        end
+    end
+end
+@enduml

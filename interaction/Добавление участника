@@ -1,0 +1,84 @@
+@startuml
+actor "Пользователь (администратор)" as Admin
+participant "Клиент" as Client
+participant "Сервер" as Server
+database "База данных" as DB
+
+Admin -> Client: Выбирает чат\nнажимает "Добавить участника"\nвводит имя пользователя
+Client -> Server: POST /chats/{chatId}/members\n{user_id}
+activate Server
+
+Server -> Server: Получить текущего пользователя из токена
+
+' Проверка существования чата и его типа
+Server -> DB: SELECT type, created_by\nFROM chats\nWHERE id = ? AND deleted_at IS NULL
+DB --> Server: chat_info (или пусто)
+
+alt Чат не найден
+    Server -> Client: 404 Not Found\n{error: "Chat not found"}
+    deactivate Server
+    Client -> Admin: Показать ошибку "Чат не найден"
+else Чат найден
+    alt chat.type != 'group'
+        Server -> Client: 400 Bad Request\n{error: "Can only add members to group chats"}
+        deactivate Server
+        Client -> Admin: Показать ошибку "Только групповые чаты"
+    else chat.type = 'group'
+        ' Проверка прав текущего пользователя
+        Server -> DB: SELECT role\nFROM chat_members\nWHERE chat_id = ? AND user_id = ? AND left_at IS NULL
+        DB --> Server: current_user_role
+
+        alt current_user_role NOT IN ('owner', 'admin')
+            Server -> Client: 403 Forbidden\n{error: "Insufficient permissions"}
+            deactivate Server
+            Client -> Admin: Показать ошибку "Недостаточно прав"
+        else current_user_role IN ('owner', 'admin')
+            ' Проверка существования добавляемого пользователя
+            Server -> DB: SELECT id, is_active\nFROM users\nWHERE id = ?
+            DB --> Server: target_user
+
+            alt target_user пуст
+                Server -> Client: 404 Not Found\n{error: "User not found"}
+                deactivate Server
+                Client -> Admin: Показать ошибку "Пользователь не найден"
+            else target_user.is_active = false
+                Server -> Client: 400 Bad Request\n{error: "User account is inactive"}
+                deactivate Server
+                Client -> Admin: Показать ошибку "Учётная запись пользователя неактивна"
+            else target_user.is_active = true
+                ' Проверка статуса участника в чате
+                Server -> DB: SELECT left_at\nFROM chat_members\nWHERE chat_id = ? AND user_id = ?
+                DB --> Server: membership_status
+
+                alt membership_status пусто (никогда не был участником)
+                    Server -> DB: BEGIN TRANSACTION
+                    Server -> DB: INSERT INTO chat_members\n(chat_id, user_id, role, joined_at)\nVALUES (?, ?, 'member', NOW())
+                    DB --> Server: OK
+                    Server -> DB: COMMIT
+                else membership_status.left_at IS NOT NULL (был, но вышел)
+                    Server -> DB: BEGIN TRANSACTION
+                    Server -> DB: UPDATE chat_members\nSET left_at = NULL, joined_at = NOW(), role = 'member'\nWHERE chat_id = ? AND user_id = ?
+                    DB --> Server: OK
+                    Server -> DB: COMMIT
+                else left_at IS NULL (уже активный участник)
+                    Server -> Client: 409 Conflict\n{error: "User already in chat"}
+                    deactivate Server
+                    Client -> Admin: Показать ошибку "Пользователь уже в чате"
+                end
+
+                ' Успешное добавление
+                Server -> Client: 200 OK\n{chat_id, user_id, joined_at}
+                deactivate Server
+                Client -> Admin: Показать успешное добавление
+
+                ' Опционально: рассылка уведомлений остальным участникам
+                Server -> DB: SELECT user_id FROM chat_members\nWHERE chat_id = ? AND user_id != ? AND left_at IS NULL
+                DB --> Server: [список участников]
+                loop для каждого участника
+                    Server -> Client: WebSocket / Push\n{ type: "member_added", chat_id, user_id }
+                end
+            end
+        end
+    end
+end
+@enduml

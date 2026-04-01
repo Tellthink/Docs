@@ -1,0 +1,41 @@
+@startuml
+actor "Пользователь" as User
+participant "Клиент" as Client
+participant "Сервер" as Server
+database "База данных" as DB
+
+User -> Client: Набирает текст\nи нажимает "Отправить"
+Client -> Server: POST /chats/{chatId}/messages\n{body, reply_to_id, attachments}
+activate Server
+
+Server -> DB: BEGIN TRANSACTION
+
+Server -> DB: INSERT INTO messages\n(id, chat_id, sender_id, reply_to_id, body, type, created_at)
+DB --> Server: OK
+
+alt Есть вложения
+    loop для каждого файла
+        Server -> DB: INSERT INTO message_attachments\n(id, message_id, file_url, ...)
+        DB --> Server: OK
+    end
+end
+
+Server -> DB: UPDATE chat_members\nSET last_read_message_id = ?\nWHERE chat_id = ? AND user_id = ?
+DB --> Server: OK
+
+Server -> DB: COMMIT
+
+Server -> Client: 201 Created\n{ message_id, created_at }
+deactivate Server
+
+Server -> DB: SELECT user_id FROM chat_members\nWHERE chat_id = ? AND user_id != ?
+activate Server
+DB --> Server: [список получателей]
+deactivate Server
+
+loop для каждого получателя
+    Server -> Client: WebSocket / Push\n{ new_message }
+end
+
+Client -> User: Отображает сообщение в чате
+@enduml

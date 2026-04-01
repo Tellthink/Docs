@@ -1,0 +1,63 @@
+@startuml
+actor "Пользователь" as User
+participant "Клиент" as Client
+participant "Сервер" as Server
+database "База данных" as DB
+
+User -> Client: Заполняет форму создания чата:\n- тип (private/group)\n- название (для group)\n- список участников
+Client -> Server: POST /chats\n{type, title, participant_ids}
+activate Server
+
+Server -> Server: Определить текущего пользователя (из токена)
+
+alt Тип = 'private'
+    Server -> DB: SELECT c.id, c.type\nFROM chats c\nJOIN chat_members cm1 ON c.id = cm1.chat_id\nJOIN chat_members cm2 ON c.id = cm2.chat_id\nWHERE c.type = 'private'\nAND cm1.user_id = ? AND cm1.left_at IS NULL\nAND cm2.user_id = ? AND cm2.left_at IS NULL
+    DB --> Server: existing_chat (или пусто)
+
+    alt Существующий приватный чат найден
+        Server -> Client: 200 OK\n{chat_id, is_existing: true}
+        deactivate Server
+        Client -> User: Открыть существующий чат
+    else Чат не существует
+        Server -> DB: BEGIN TRANSACTION
+        Server -> DB: INSERT INTO chats\n(id, type, title, created_by, created_at)\nVALUES (?, 'private', NULL, ?, NOW())
+        DB --> Server: OK
+        Server -> DB: INSERT INTO chat_members\n(chat_id, user_id, role, joined_at)\nVALUES (?, ?, 'owner', NOW())
+        DB --> Server: OK
+        Server -> DB: INSERT INTO chat_members\n(chat_id, user_id, role, joined_at)\nVALUES (?, ?, 'member', NOW())
+        DB --> Server: OK
+        Server -> DB: INSERT INTO chat_settings\n(chat_id, allow_guests, message_retention_days)\nVALUES (?, TRUE, NULL)
+        DB --> Server: OK
+        Server -> DB: COMMIT
+        Server -> Client: 201 Created\n{chat_id, type: 'private'}
+        deactivate Server
+        Client -> User: Открыть новый чат
+    end
+
+else Тип = 'group'
+    alt Название чата не указано или пустое
+        Server -> Client: 400 Bad Request\n{error: "Group chat title is required"}
+        Client -> User: Показать ошибку "Название группы обязательно"
+    else Название указано
+        Server -> DB: BEGIN TRANSACTION
+        Server -> DB: INSERT INTO chats\n(id, type, title, created_by, created_at)\nVALUES (?, 'group', ?, ?, NOW())
+        DB --> Server: OK
+        Server -> DB: INSERT INTO chat_members\n(chat_id, user_id, role, joined_at)\nVALUES (?, ?, 'owner', NOW())
+        DB --> Server: OK
+        Server -> DB: INSERT INTO chat_settings\n(chat_id, allow_guests, message_retention_days)\nVALUES (?, TRUE, NULL)
+        DB --> Server: OK
+
+        alt Указаны дополнительные участники
+            loop для каждого participant_id в participant_ids
+                Server -> DB: INSERT INTO chat_members\n(chat_id, user_id, role, joined_at)\nVALUES (?, ?, 'member', NOW())
+                DB --> Server: OK
+            end
+        end
+
+        Server -> DB: COMMIT
+        Server -> Client: 201 Created\n{chat_id, type: 'group'}
+        deactivate Server
+        Client -> User: Открыть новый групповой чат
+    end
+end
+@enduml

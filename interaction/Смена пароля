@@ -1,0 +1,53 @@
+@startuml
+actor "Пользователь" as User
+participant "Клиент" as Client
+participant "Сервер" as Server
+database "База данных" as DB
+
+User -> Client: Входит в настройки\nвводит старый пароль, новый пароль\nнажимает "Сменить пароль"
+Client -> Server: POST /auth/password-change\n{old_password, new_password}
+activate Server
+
+Server -> Server: Извлечь user_id из access_token
+
+' Получить текущий хеш пароля
+Server -> DB: SELECT password_hash, is_active\nFROM users\nWHERE id = ?
+DB --> Server: user_data (или пусто)
+
+alt Пользователь не найден или is_active = false
+    Server -> Client: 404 Not Found / 403 Forbidden\n{error: "User not active"}
+    deactivate Server
+    Client -> User: Показать ошибку
+else Пользователь активен
+    Server -> Server: Проверить old_password\nс помощью bcrypt.compare
+    alt Неверный старый пароль
+        Server -> Client: 401 Unauthorized\n{error: "Invalid current password"}
+        deactivate Server
+        Client -> User: Показать ошибку
+    else Старый пароль верен
+        Server -> Server: Хешировать новый пароль\n(bcrypt.hash)
+
+        ' Начать транзакцию
+        Server -> DB: BEGIN TRANSACTION
+
+        ' Обновить пароль и время обновления
+        Server -> DB: UPDATE users\nSET password_hash = ?, updated_at = NOW()\nWHERE id = ?
+        DB --> Server: OK
+
+        ' Отозвать все активные refresh-токены (принудительный выход со всех устройств)
+        Server -> DB: UPDATE refresh_tokens\nSET revoked_at = NOW()\nWHERE user_id = ? AND revoked_at IS NULL
+        DB --> Server: OK
+
+        Server -> DB: COMMIT
+
+        ' Вернуть успешный ответ
+        Server -> Client: 200 OK\n{message: "Password changed successfully"}
+        deactivate Server
+        Client -> User: Показать сообщение об успехе\n(опционально: выйти и предложить войти заново)
+
+        ' Опционально: через WebSocket отправить событие о смене пароля другим сессиям (если поддерживается)
+        Server -> DB: SELECT user_id FROM refresh_tokens\nWHERE user_id = ? AND revoked_at IS NULL
+        DB --> Server: [список активных сессий (должен быть пуст)]
+    end
+end
+@enduml
