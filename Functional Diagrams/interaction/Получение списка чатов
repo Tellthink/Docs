@@ -1,0 +1,35 @@
+@startuml
+actor "Пользователь" as User
+participant "Клиент" as Client
+participant "Сервер" as Server
+database "База данных" as DB
+
+User -> Client: Открывает экран "Чаты"
+Client -> Server: GET /chats?limit=20&offset=0
+activate Server
+
+Server -> Server: Извлечь user_id из токена
+
+Server -> DB: SELECT\n    c.id, c.type, c.title, c.avatar_url,\n    c.created_at,\n    cm.role, cm.is_muted,\n    (SELECT COUNT(*) FROM messages m\n     WHERE m.chat_id = c.id\n       AND m.created_at > COALESCE(cm.last_read_message_time, '1970-01-01')\n    ) as unread_count,\n    (SELECT body FROM messages m2\n     WHERE m2.chat_id = c.id\n     ORDER BY m2.created_at DESC\n     LIMIT 1\n    ) as last_message_preview,\n    (SELECT created_at FROM messages m3\n     WHERE m3.chat_id = c.id\n     ORDER BY m3.created_at DESC\n     LIMIT 1\n    ) as last_activity\nFROM chats c\nJOIN chat_members cm ON c.id = cm.chat_id\nWHERE cm.user_id = ?\n  AND cm.left_at IS NULL\nORDER BY last_activity DESC\nLIMIT ? OFFSET ?
+DB --> Server: [список чатов]
+
+alt Список пуст
+    Server -> Client: 200 OK\n{ chats: [], total: 0 }
+    deactivate Server
+    Client -> User: Показать пустое состояние
+else Чаты найдены
+    Server -> Server: Обогатить данные:
+    loop для каждого чата
+        alt тип = 'private'
+            Server -> DB: SELECT u.id, u.username, u.display_name, u.avatar_url\nFROM users u\nJOIN chat_members cm2 ON u.id = cm2.user_id\nWHERE cm2.chat_id = ? AND cm2.user_id != ?
+            DB --> Server: [другой участник]
+            Server -> Server: Сформировать title = display_name другого участника,\navatar_url = его аватар
+        else тип = 'group'
+            Server -> Server: Использовать title и avatar_url из чата
+        end
+    end
+    Server -> Client: 200 OK\n{ chats: [...], total: (SELECT COUNT(*) FROM chat_members WHERE user_id = ? AND left_at IS NULL) }
+    deactivate Server
+    Client -> User: Отобразить список чатов
+end
+@enduml
