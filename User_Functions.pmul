@@ -7,17 +7,24 @@ actor "Авторизированный  пользователь" as Authorized
 rectangle "Система входа" {
   usecase "Регистрация" as UC1
   usecase "Вход" as UC2
-  usecase "Восстановление пароля" as UC3
 }
 
 
 rectangle "Навигатор" as R2{
-  usecase "Открыть профиль" as UC18
+
+  usecase "Смена пользователя" as UC5
+  usecase "Выход" as UC6
+  usecase "Смена пароля" as UC4
+
+  usecase "Открыть меню профилей" as UC18
 
   rectangle "Профиль" {
-    usecase "Смена пароля" as UC4
-    usecase "Смена пользователя" as UC5
-    usecase "Выход" as UC6
+    usecase "Создать профиль" as UC19
+    usecase "Сменить профиль" as UC20
+    usecase "Удалить профиль" as UC21
+    usecase "Редактировать профиль" as UC22
+    usecase "Сменить имя профиля" as UC24
+    usecase "Сменить аватар профиля" as UC25
   } 
 
   usecase "Открыть меню пользователей" as UC17
@@ -44,6 +51,7 @@ rectangle "Навигатор" as R2{
     usecase "Удалить сообщение" as UC14b
     usecase "Перемещение по чату" as UC15
     usecase "Ввод сообщения" as UC16
+    usecase "Прикрепить файл к сообщению" as UC23
   } 
 }
 
@@ -52,12 +60,12 @@ User --> UC2
 
 UC1 --> UC2
 
-UC2 --> UC3
 UC2 --> Authorized_user
 
-UC3 --> Authorized_user
-
+Authorized_user --> UC4
 Authorized_user --> UC18
+Authorized_user --> UC5
+Authorized_user --> UC6
 Authorized_user --> UC10
 Authorized_user --> UC7b1
 Authorized_user --> UC8
@@ -89,11 +97,16 @@ UC14 --> UC14a
 UC14 --> UC14b
 
 UC16 --> UC13
+UC16 --> UC23
 
 UC17 --> UC7
 
-UC18 --> UC4
-UC18 --> UC5
-UC18 --> UC6
+UC18 --> UC19
+UC18 --> UC20
+UC18 --> UC21
+UC18 --> UC22
+
+UC22 --> UC24
+UC22 --> UC25
 
 @enduml
